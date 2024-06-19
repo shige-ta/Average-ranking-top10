@@ -1,39 +1,38 @@
-import pandas as pd
-import psutil
-import heapq
+import duckdb
+
+import sys
 
 # CSVファイルのパス
-file_path = ''
+file_path = sys.argv[1]
 
-# チャンクサイズの計算
-total_memory_gb = psutil.virtual_memory().total / (1024 ** 3)  # メモリ容量をGBで取得
-chunk_size = int((total_memory_gb / 4) * (1024 ** 2))  # メモリ容量の1/4をMB単位でチャンクサイズとする
+# DuckDBでCSVファイルを読み込む
+con = duckdb.connect()
+con.execute(f"""
+    CREATE TABLE game_scores AS 
+    SELECT * FROM read_csv_auto('{file_path}')
+""")
 
-# プレイヤーごとのスコアの合計とプレイ回数を追跡する辞書を作成
-scores_dict = {}
-play_counts = {}
+# プレイヤーごとの平均スコアを計算する
+mean_scores_df = con.execute("""
+    SELECT 
+        player_id, 
+        ROUND(AVG(score)) AS mean_score 
+    FROM 
+        game_scores 
+    GROUP BY 
+        player_id
+""").fetchdf()
 
-# CSVファイルを読み込みながら処理
-for chunk in pd.read_csv(file_path, chunksize=chunk_size):
-    # player_idごとにスコアとプレイ回数を加算
-    for idx, row in chunk.iterrows():
-        player_id = row['player_id']
-        score = row['score']
-        scores_dict[player_id] = scores_dict.get(player_id, 0) + score
-        play_counts[player_id] = play_counts.get(player_id, 0) + 1
+# 平均スコアの順位を計算し、上位10人を出力する
+mean_scores_df['rank'] = mean_scores_df['mean_score'].rank(method='min', ascending=False)
+mean_scores_df = mean_scores_df.sort_values(by=['mean_score', 'player_id'], ascending=[False, True]).reset_index(drop=True)
 
-# 平均スコアを計算する
-mean_scores = {player_id: round(scores_dict[player_id] / play_counts[player_id]) for player_id in scores_dict}
-
-# ランクを付けて出力する
+# 上位10人のプレイヤーの情報を出力する
 print('rank,player_id,mean_score')
-prev_score = None
-rank = 0
-for idx, (player_id, score) in enumerate(sorted(mean_scores.items(), key=lambda x: (-x[1], int(x[0].replace('player', '')))), start=1):
-    mean_score = score
-    if prev_score is None or prev_score != mean_score:
-        rank = idx
-    if rank > 10:
+for idx, row in mean_scores_df.iterrows():
+    if row['rank'] > 10:
         break
-    print(f"{rank},{player_id},{mean_score}")
-    prev_score = mean_score
+    print(f"{int(row['rank'])},{row['player_id']},{int(row['mean_score'])}")
+
+# データベースの接続を閉じる
+con.close()
