@@ -41,7 +41,7 @@ The main script processes the CSV file in chunks to handle large files efficient
 
 1. Run the script:
     ```sh
-    python main.py
+    python main.py *.csv
     ```
 
 2. The output will display the top 10 players, their IDs, and their average scores.
